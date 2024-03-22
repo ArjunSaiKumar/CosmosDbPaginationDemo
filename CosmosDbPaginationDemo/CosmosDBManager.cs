@@ -42,25 +42,47 @@ namespace CosmosDbPaginationDemo
 
             return students;
         }
-        public async Task<List<Student>> GetStudents2Async(int pageNumber, int pageSize)
+        public async Task<object> GetStudents2Async(int age, int pageNumber = 1, int pageSize = 10)
         {
             var students = new List<Student>();
             try
             {
-                var continuationToken = CalculateContinuationToken(pageNumber, pageSize);
-                if (string.IsNullOrEmpty(continuationToken))
+                string continuationToken = null;
+                int size = pageNumber * pageSize;
+                QueryDefinition query = new QueryDefinition($"SELECT VALUE count(1) FROM root WHERE root.Age = {age}");
+
+                var iterator = _container.GetItemQueryIterator<int>(
+                    query,
+                    requestOptions: new QueryRequestOptions { MaxItemCount = 1, MaxConcurrency = -1 });
+
+                if (iterator.HasMoreResults)
                 {
-                    Console.WriteLine("Invalid page number or page size.");
-                    return students;
+                    var response = await iterator.ReadNextAsync();
+                    if (response.Count > 0)
+                    {
+                        // Check if the response is a valid integer
+                        if (response.FirstOrDefault() is int countValue)
+                        {
+                            return countValue;
+                        }
+                        else
+                        {
+                            // Response is not in the expected format
+                            throw new Exception("Unexpected response format: Response is not a valid integer.");
+                        }
+                    }
+                    else
+                    {
+                        // No results returned by the query
+                        return 0;
+                    }
+                }
+                else
+                {
+                    // No more results available
+                    return 0;
                 }
 
-                var iterator = _container.GetItemQueryIterator<Student>(
-                    "SELECT * FROM c",
-                    continuationToken,
-                    new QueryRequestOptions { MaxItemCount = pageSize });
-
-                var response = await iterator.ReadNextAsync();
-                students.AddRange(response);
             }
             catch (Exception ex)
             {
@@ -71,19 +93,5 @@ namespace CosmosDbPaginationDemo
             return students;
         }
 
-        private string CalculateContinuationToken(int pageNumber, int pageSize)
-        {
-            if (pageNumber <= 0 || pageSize <= 0)
-                return null;
-
-            int skip = (pageNumber - 1) * pageSize;
-
-            return ToContinuationToken(skip);
-        }
-
-        private string ToContinuationToken(int skip)
-        {
-            return JsonConvert.SerializeObject(new { skip });
-        }
     }
 }
